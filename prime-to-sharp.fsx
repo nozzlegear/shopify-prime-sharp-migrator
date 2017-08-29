@@ -3,6 +3,12 @@ type Export = {
     extends: string option
 }
 
+type Element = {
+    name: string
+    typeValue: string
+    children: Element list option
+}
+
 let getRegexValueAtIndex index (regexCollection: System.Text.RegularExpressions.Match) =
     regexCollection.Groups
         |> Seq.cast<System.Text.RegularExpressions.Group>
@@ -41,7 +47,9 @@ let rec extractNextComment (lines: string list) =
     // TODO: If the next non-empty line isn't a comment, return the lines given.
     [""]
 
-let text = System.IO.File.ReadAllLines("PriceRule.ts");
+let text =
+    System.IO.File.ReadAllLines("PriceRule.ts")
+    |> Seq.map(trim)
 
 // Find the interface
 let interfaceNames =
@@ -102,18 +110,27 @@ let sharpedProps =
 // type + the remaining lines.
 // Not sure if that's possible in F# though, wouldn't that imply a mutabe list?
 
+// We're looking for a recursive descent parser, which will go through the document top to bottom and parse its meaning.
+// I'm thinking we need something that can find curly brackets, recognize that its the start of something (interface or an inline type)
+// and then go through that, parsing all of its types and recursively calling itself on nested curlies. The return type would
+// be a recursive type with a `Children` list property containing all of its own children:
+// { type: interface, name: foo, children: [ {type: inline-object, name: bar, children: ...}, {type: string, name: baz, children: None} ] }
+
 let getComment (line: string): string option =
-    let isBeginningComment = System.Text.RegularExpressions.Regex "^/\*"
-    let isEndingComment = System.Text.RegularExpressions.Regex "^\*/$"
+    let isBeginningComment = System.Text.RegularExpressions.Regex "^\/\*[\*| ]*"
+    let isEndingComment = System.Text.RegularExpressions.Regex "^\*\/$"
     let isComment = System.Text.RegularExpressions.Regex "^\*"
 
-    match line.Trim() with
+    match line with
     | c when isBeginningComment.IsMatch c ->
-        isBeginningComment.Split c |> Seq.item 1 |> Some
+        let value = isBeginningComment.Split c |> Seq.item 1
+        Some <| sprintf "/// <summary>"
     | c when isEndingComment.IsMatch c ->
-        isEndingComment.Split c |> Seq.item 1 |> Some
+        let value = isEndingComment.Split c |> Seq.item 1
+        Some "/// </summary>"
     | c when isComment.IsMatch c ->
-        isComment.Split c |> Seq.item 1 |> Some
+        let value = isComment.Split c |> Seq.item 1
+        Some <| sprintf "/// %s" value
     | _ -> None
 
 let comments =
